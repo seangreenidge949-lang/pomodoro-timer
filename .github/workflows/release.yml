@@ -1,0 +1,32 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Universal Binary
+        run: chmod +x build.sh && ./build.sh
+
+      - name: Verify Universal Binary
+        run: file PomodoroTimer.app/Contents/MacOS/PomodoroTimer
+
+      - name: Package
+        env:
+          TAG_REF: ${{ github.ref }}
+        run: |
+          TAG="${TAG_REF#refs/tags/}"
+          ditto -c -k --sequesterRsrc --keepParent PomodoroTimer.app "PomodoroTimer-${TAG}.zip"
+          echo "ZIP_NAME=PomodoroTimer-${TAG}.zip" >> "$GITHUB_ENV"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ZIP_NAME }}
+          generate_release_notes: true

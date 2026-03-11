@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pomodoro Timer</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍅</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;700;900&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Outfit', system-ui, sans-serif;
+      background: #FFFFFF;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 48px;
+      user-select: none;
+    }
+
+    .timer-display {
+      font-size: 144px;
+      font-weight: 900;
+      color: #000000;
+      letter-spacing: -6px;
+      line-height: 0.85;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .progress-track {
+      width: 320px;
+      height: 2px;
+      background: #E0E0E0;
+      border-radius: 1px;
+      opacity: 0;
+      margin-top: -32px;
+    }
+
+    .progress-track.visible { opacity: 1; }
+
+    .progress-fill {
+      height: 100%;
+      background: #000000;
+      border-radius: 1px;
+      width: 0%;
+    }
+
+    @keyframes breathing {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.88; }
+    }
+
+    .breathing {
+      animation: breathing 4s ease-in-out infinite;
+    }
+
+    .session-dots {
+      display: flex;
+      gap: 8px;
+      margin-top: -8px;
+    }
+
+    .session-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .session-dot.filled { background: #CCCCCC; }
+    .session-dot.empty { background: transparent; border: 1px solid #E8E8E8; }
+
+    #actionBtn {
+      font-family: 'Outfit', system-ui, sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      color: #FFFFFF;
+      background: #000000;
+      border: none;
+      padding: 16px 48px;
+      border-radius: 40px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    #actionBtn:hover { opacity: 0.8; }
+    #actionBtn:active { opacity: 0.6; }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: #E74C3C;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      gap: 24px;
+      z-index: 9999;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .overlay:not(.hidden):not(.dismissing) {
+      animation: alertBreathe 3s ease-in-out infinite;
+    }
+
+    .overlay:not(.hidden) .overlay-title {
+      animation: textPulse 2s ease-in-out infinite;
+    }
+
+    .overlay.dismissing {
+      transform: scale(0.95);
+      opacity: 0;
+      transition: transform 300ms ease-out, opacity 300ms ease-out;
+    }
+
+    @keyframes alertBreathe {
+      0%, 100% { background-color: #E74C3C; }
+      50% { background-color: #C0392B; }
+    }
+
+    @keyframes textPulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.02); }
+    }
+
+    .overlay-title {
+      font-size: 120px;
+      font-weight: 900;
+      color: #FFFFFF;
+      letter-spacing: -4px;
+      line-height: 0.9;
+    }
+
+    .overlay-sub {
+      font-size: 40px;
+      font-weight: 300;
+      color: #FFFFFF;
+      letter-spacing: -1px;
+    }
+
+    .overlay-hint {
+      font-family: system-ui, sans-serif;
+      font-size: 16px;
+      font-weight: 400;
+      color: rgba(255,255,255,0.5);
+      letter-spacing: 1px;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 0.8; }
+    }
+
+    @media (max-width: 600px) {
+      .timer-display { font-size: 80px; letter-spacing: -3px; }
+      .overlay-title { font-size: 64px; letter-spacing: -2px; }
+      .overlay-sub { font-size: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="timer-display" id="timerDisplay">25:00</div>
+    <div class="progress-track" id="progressTrack"><div class="progress-fill" id="progressFill"></div></div>
+    <button id="actionBtn">START</button>
+    <div class="session-dots" id="sessionDots"></div>
+  </div>
+
+  <div id="overlay" class="overlay hidden">
+    <div class="overlay-title">时间到！</div>
+    <div class="overlay-sub">休息一下</div>
+    <div class="overlay-hint">按任意键返回</div>
+  </div>
+
+  <script>
+    const DURATION = 25 * 60;
+    const SESSION_GOAL = 4;
+
+    const timerDisplay = document.getElementById('timerDisplay');
+    const actionBtn = document.getElementById('actionBtn');
+    const overlay = document.getElementById('overlay');
+    const progressTrack = document.getElementById('progressTrack');
+    const progressFill = document.getElementById('progressFill');
+    const sessionDotsEl = document.getElementById('sessionDots');
+
+    let remaining = DURATION;
+    let state = 'idle'; // idle | running | paused | alert | dismissing
+    let intervalId = null;
+    let endTime = 0;
+    let sessionCount = 0;
+
+    function todayString() {
+      return new Date().toISOString().slice(0, 10);
+    }
+
+    function loadSessionCount() {
+      try {
+        const data = JSON.parse(localStorage.getItem('pomodoroSessions'));
+        if (data && data.date === todayString()) return data.count;
+      } catch (e) {}
+      return 0;
+    }
+
+    function saveSessionCount(count) {
+      localStorage.setItem('pomodoroSessions', JSON.stringify({ date: todayString(), count }));
+    }
+
+    function renderSessionDots() {
+      sessionDotsEl.replaceChildren();
+      if (sessionCount === 0) return;
+      const total = Math.max(sessionCount, SESSION_GOAL);
+      for (let i = 0; i < total; i++) {
+        const dot = document.createElement('div');
+        dot.className = 'session-dot ' + (i < sessionCount ? 'filled' : 'empty');
+        sessionDotsEl.appendChild(dot);
+      }
+    }
+
+    sessionCount = loadSessionCount();
+    renderSessionDots();
+
+    function updateDisplay() {
+      const m = Math.floor(remaining / 60);
+      const s = remaining % 60;
+      const timeStr = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+      timerDisplay.textContent = timeStr;
+      if (state === 'running' || state === 'paused') {
+        document.title = timeStr + ' - Pomodoro';
+        progressTrack.classList.add('visible');
+        progressFill.style.width = ((DURATION - remaining) / DURATION) * 100 + '%';
+      } else {
+        progressTrack.classList.remove('visible');
+        progressFill.style.width = '0%';
+      }
+    }
+
+    function startTimer() {
+      endTime = Date.now() + remaining * 1000;
+      intervalId = setInterval(() => {
+        remaining = Math.max(0, Math.round((endTime - Date.now()) / 1000));
+        updateDisplay();
+        if (remaining <= 0) {
+          clearInterval(intervalId);
+          intervalId = null;
+          showAlert();
+        }
+      }, 200);
+    }
+
+    function playAlertSound() {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const notes = [523.25, 659.25, 523.25, 659.25]; // C5, E5 alternating
+      const spacing = 0.45;
+
+      notes.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = freq;
+        osc.type = 'sine';
+        const start = ctx.currentTime + i * spacing;
+        gain.gain.setValueAtTime(0.25, start);
+        gain.gain.exponentialRampToValueAtTime(0.001, start + 0.4);
+        osc.start(start);
+        osc.stop(start + 0.4);
+      });
+    }
+
+    function showAlert() {
+      state = 'alert';
+      timerDisplay.classList.remove('breathing');
+      overlay.classList.remove('hidden');
+      document.title = '时间到！';
+      playAlertSound();
+      // 尝试全屏（可能被浏览器拒绝，因为非用户手势触发）
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    }
+
+    function dismissAlert() {
+      if (state !== 'alert') return;
+      state = 'dismissing';
+      overlay.classList.add('dismissing');
+      overlay.addEventListener('transitionend', function onEnd() {
+        overlay.removeEventListener('transitionend', onEnd);
+        overlay.classList.add('hidden');
+        overlay.classList.remove('dismissing');
+        overlay.style.transform = '';
+        overlay.style.opacity = '';
+        // 退出全屏
+        if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+        sessionCount++;
+        saveSessionCount(sessionCount);
+        renderSessionDots();
+        state = 'idle';
+        remaining = DURATION;
+        updateDisplay();
+        actionBtn.textContent = 'START';
+        document.title = 'Pomodoro Timer';
+      }, { once: true });
+    }
+
+    actionBtn.addEventListener('click', () => {
+      if (state === 'idle') {
+        state = 'running';
+        remaining = DURATION;
+        updateDisplay();
+        actionBtn.textContent = 'PAUSE';
+        timerDisplay.classList.add('breathing');
+        startTimer();
+      } else if (state === 'running') {
+        state = 'paused';
+        clearInterval(intervalId);
+        intervalId = null;
+        actionBtn.textContent = 'RESUME';
+        timerDisplay.classList.remove('breathing');
+      } else if (state === 'paused') {
+        state = 'running';
+        actionBtn.textContent = 'PAUSE';
+        timerDisplay.classList.add('breathing');
+        startTimer();
+      }
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (state === 'alert') {
+        dismissAlert();
+      }
+    });
+
+    overlay.addEventListener('click', dismissAlert);
+  </script>
+</body>
+</html>

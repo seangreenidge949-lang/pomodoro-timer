@@ -1,0 +1,22 @@
+# Build artifacts
+.build/
+PomodoroTimer.app/
+*.zip
+
+# macOS
+.DS_Store
+*.iconset/
+
+# Xcode
+xcuserdata/
+*.xcscmblueprint
+
+# Claude
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+
+# Generated
+exploration-output.json
